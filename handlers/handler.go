@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"reciepes-api/models"
 	"strings"
 	"time"
@@ -69,6 +70,12 @@ func (handler *RecipesHandler) ListRecipesHandler(c *gin.Context) {
 }
 
 func (handler *RecipesHandler) NewRecipeHandler(c *gin.Context) {
+
+	if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "API key not provided or invalid"})
+		return
+	}
+
 	var recipe models.Recipe
 	if err := c.ShouldBindJSON(&recipe); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -155,4 +162,24 @@ func (handler *RecipesHandler) SearchRecipesHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, listOfRecipes)
+}
+
+func (handler *RecipesHandler) SearchRecipesIDHandler(c *gin.Context) {
+	id := c.Param("id")
+
+	objectId, _ := primitive.ObjectIDFromHex(id)
+
+	cur := handler.collection.FindOne(handler.ctx, bson.M{"_id": objectId})
+
+	if cur.Err() != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": cur.Err().Error()})
+		return
+	}
+
+	var recipe models.Recipe
+
+	cur.Decode(&recipe)
+
+	c.JSON(http.StatusOK, recipe)
+
 }
