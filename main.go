@@ -8,6 +8,8 @@ import (
 	"reciepes-api/handlers"
 	"time"
 
+	"github.com/gin-contrib/sessions"
+	redisStore "github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -30,6 +32,7 @@ var err error
 var client *mongo.Client
 var collection *mongo.Collection
 var recipesHandler *handlers.RecipesHandler
+var authHandler *handlers.AuthHandler
 
 func init() {
 	/*recipes = make([]Recipe, 0)
@@ -75,14 +78,44 @@ func init() {
 
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
 
+	collectionUsers := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
+
+	authHandler = handlers.NewAuthHandler(ctx, collectionUsers)
+
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {
+			c.AbortWithStatus(401)
+		}
+
+		c.Next()
+	}
 }
 
 func main() {
 	router := gin.Default()
+	store, _ := redisStore.NewStore(10, "tcp", "localhost:6379", "", []byte("secret"))
+	router.Use(sessions.Sessions("recipes_api", store))
+
 	router.GET("/recipes", recipesHandler.ListRecipesHandler)
-	router.POST("/recipes", recipesHandler.NewRecipeHandler)
-	router.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
-	router.DELETE("/recipes/:id", recipesHandler.DeleteRecipeHandler)
-	router.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
+	router.POST("/signin", authHandler.SignInHandler)
+	router.POST("/refresh", authHandler.RefreshHandler)
+	router.POST("/signup", authHandler.SignUpHandler)
+	router.POST("/signout", authHandler.SignOutHandler)
+
+	authorized := router.Group("/")
+
+	authorized.Use(authHandler.AuthMiddleware())
+	{
+		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
+		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
+		authorized.DELETE("/recipes/:id", recipesHandler.DeleteRecipeHandler)
+		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
+		authorized.GET("/recipes/:id", recipesHandler.SearchRecipesIDHandler)
+
+	}
+
 	router.Run()
 }
